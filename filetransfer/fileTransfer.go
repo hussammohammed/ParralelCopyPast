@@ -51,16 +51,26 @@ func sendChunksChannelAsync(sourcePath string, destinationPath string, fileSize 
 	done := make(chan interface{})
 	chunks := make(chan fileChunk, totalChunksCount) // Use buffered channel with a capacity of chunks count
 	defer close(done)
+	result := receiveChunksChannel(done, chunks, destinationPath)
 	for i := 0; i < 10; i++ {
 		chunks <- fileChunk{num: i}
 	}
+	// after sending all file chunks, then close chunks channel to allow receiveChunksChannel function to return
 	close(chunks)
-	for result := range receiveChunksChannel(done, chunks, destinationPath) {
-		log.Printf("result of chunk #%v is: %v\n", result.chunkNum, result.statusCode)
+
+	for {
+		select {
+		case r, ok := <-result:
+			if !ok {
+				log.Println("all file chunks have been sent")
+				return
+			}
+			log.Printf("result of chunk #%v is: %v\n", r.chunkNum, r.statusCode)
+			// if r.statusCode == http.StatusInternalServerError {
+			// 	return
+			// }
+		}
 	}
-	//<-terminated
-	// close(chunks)
-	log.Println("all file chunks have been sent")
 }
 
 func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, destinationPath string) <-chan Result {
@@ -71,20 +81,20 @@ func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, dest
 		defer close(terminated)
 		for {
 			select {
+			case <-done:
+				return
+
 			case chunk, ok := <-chunks:
 				if !ok {
 					return
 				}
 				log.Printf("i received chunk #%v\n", chunk.num)
 				// this just for initial testing of communication between channels
-				if chunk.num == 1 {
+				if chunk.num == 5 {
 					terminated <- Result{chunkNum: chunk.num, statusCode: http.StatusInternalServerError, message: fmt.Sprintf("can not write chunk #%v", chunk.num)}
 				} else {
 					terminated <- Result{chunkNum: chunk.num, statusCode: http.StatusOK}
 				}
-
-			case <-done:
-				return
 			}
 		}
 	}()
