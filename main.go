@@ -11,8 +11,8 @@ func main() {
 
 	fmt.Println("init project")
 	handler := fileTransfer.FileTransferHandler{}
-	sourcePath := filepath.Join("/media/hossam/Work/hossam/cources/go", "Golang Web Server and RSS Scraper _ Full Tutorial.mp4")
-	destinationPath := "/media/hossam/Work"
+	sourcePath := filepath.Join("/media/hossam/Work/hossam/cources/microservice", "NET Microservices – Full Course.mp4")
+	destinationPath := filepath.Join("/media/hossam/Work", "NET Microservices – Full Course.mp4")
 	err := handler.CopyPastFile(sourcePath, destinationPath)
 	if err != nil {
 		fmt.Println(err.Error())

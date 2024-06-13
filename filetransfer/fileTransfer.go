@@ -2,6 +2,7 @@ package fileTransfer
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -9,8 +10,8 @@ import (
 
 type FileTransferHandler struct{}
 type fileChunk struct {
-	num int
-	//data []byte
+	num  int
+	data []byte
 	//msg  string
 }
 type Result struct {
@@ -21,39 +22,57 @@ type Result struct {
 }
 
 const (
-	chunkSize = 1024 * 1024 // 1MB is the chunk size
+	chunkSize = 5 * 1024 * 1024 // 5MB is the chunk size
 )
 
 func (fth *FileTransferHandler) CopyPastFile(sourcePath string, destinationPath string) error {
-	fth.splitFileToChunks(sourcePath, destinationPath)
+	readAndSendChunks(sourcePath, destinationPath)
 	return nil
 }
 
-func (fth *FileTransferHandler) splitFileToChunks(sourcePath string, destinationPath string) error {
+func readAndSendChunks(sourcePath string, destinationPath string) error {
 	file, err := os.Open(sourcePath)
 	if err != nil {
 		log.Println("can not open file")
 		return err
 	}
+	// get file size
 	fileInfo, err := file.Stat()
 	if err != nil {
 		log.Println("can not read file info")
 	}
+	defer file.Close()
+
 	fileSize := fileInfo.Size()
 	log.Printf("file size is %v", fileSize)
-	sendChunksChannelAsync(sourcePath, destinationPath, fileSize)
-	return nil
-}
-
-func sendChunksChannelAsync(sourcePath string, destinationPath string, fileSize int64) {
 	totalChunksCount := fileSize / chunkSize
+	if fileSize%chunkSize != 0 {
+		totalChunksCount++
+	}
 	log.Printf("total chunks are %v\n", totalChunksCount)
 	done := make(chan interface{})
 	chunks := make(chan fileChunk, totalChunksCount) // Use buffered channel with a capacity of chunks count
 	defer close(done)
+
+	buffer := make([]byte, chunkSize)
 	result := receiveChunksChannel(done, chunks, destinationPath)
-	for i := 0; i < 10; i++ {
-		chunks <- fileChunk{num: i}
+	for i := 0; i < int(totalChunksCount); i++ {
+		//chunkData, err := file.Read(buffer)
+		readBytes, err := file.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
+				log.Println("end of the file")
+				break
+			}
+			return err
+		}
+		if readBytes > 0 {
+			// ensures that chunk contains only the actual data read from the file, without any uninitialized or unused bytes.
+			chunk := make([]byte, readBytes)
+			copy(chunk, buffer[:readBytes])
+			chunks <- fileChunk{num: i, data: chunk}
+		}
+
 	}
 	// after sending all file chunks, then close chunks channel to allow receiveChunksChannel function to return
 	close(chunks)
@@ -63,7 +82,7 @@ func sendChunksChannelAsync(sourcePath string, destinationPath string, fileSize 
 		case r, ok := <-result:
 			if !ok {
 				log.Println("all file chunks have been sent")
-				return
+				return nil
 			}
 			log.Printf("result of chunk #%v is: %v\n", r.chunkNum, r.statusCode)
 			// if r.statusCode == http.StatusInternalServerError {
@@ -75,9 +94,15 @@ func sendChunksChannelAsync(sourcePath string, destinationPath string, fileSize 
 
 func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, destinationPath string) <-chan Result {
 	fmt.Println(len(chunks))
+	combinedFile, err := os.Create(destinationPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	terminated := make(chan Result)
 	go func() {
 		defer log.Println("all file chunks have been received")
+		defer combinedFile.Close()
 		defer close(terminated)
 		for {
 			select {
@@ -88,12 +113,11 @@ func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, dest
 				if !ok {
 					return
 				}
-				log.Printf("i received chunk #%v\n", chunk.num)
-				// this just for initial testing of communication between channels
-				if chunk.num == 5 {
+				log.Printf("i received chunk #%v size: %v\n", chunk.num, len(chunk.data))
+				_, err := combinedFile.Write(chunk.data)
+				if err != nil {
 					terminated <- Result{chunkNum: chunk.num, statusCode: http.StatusInternalServerError, message: fmt.Sprintf("can not write chunk #%v", chunk.num)}
-				} else {
-					terminated <- Result{chunkNum: chunk.num, statusCode: http.StatusOK}
+					log.Fatal(err)
 				}
 			}
 		}
