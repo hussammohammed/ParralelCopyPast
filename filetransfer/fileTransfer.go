@@ -3,15 +3,20 @@ package fileTransfer
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 )
 
 type FileTransferHandler struct{}
 type fileChunk struct {
-	num  int
-	data []byte
+	fileName string
+	num      int
+	data     []byte
 	//msg  string
 }
 type Result struct {
@@ -25,12 +30,69 @@ const (
 	chunkSize = 5 * 1024 * 1024 // 5MB is the chunk size
 )
 
-func (fth *FileTransferHandler) CopyPastFile(sourcePath string, destinationPath string) error {
-	readAndSendChunks(sourcePath, destinationPath)
+func (fth *FileTransferHandler) CopyPast(sourcePath string, destinationPath string) error {
+	fileInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if fileInfo.IsDir() {
+		directoryName := getLastFolderName(sourcePath)
+		err := CopyPastDirectory(directoryName, sourcePath, destinationPath)
+		return err
+	} else {
+		err := sendFileAsChunks(sourcePath, destinationPath)
+		return err
+	}
+}
+func CopyPastDirectory(directoryName string, baseSourcePath string, destinationPath string) error {
+	files, err := os.ReadDir(baseSourcePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	//create new folder at distination path with same name as source path
+	destinationPath = filepath.Join(destinationPath, directoryName)
+	os.Mkdir(destinationPath, fs.ModePerm)
+	begin := make(chan interface{})
+	var wg sync.WaitGroup
+	// loop over all files and folders inside main folder
+	for _, file := range files {
+		if err != nil {
+			log.Fatal(err)
+		}
+		curFileName := file.Name()
+		sourcePath := baseSourcePath
+		// if current file is a folder then call CopyPastDirectory again to copy nest folders and files
+		if file.IsDir() {
+			sourcePath = filepath.Join(baseSourcePath, curFileName)
+			CopyPastDirectory(curFileName, sourcePath, destinationPath)
+		} else { // copy/past files inparallel (separated goroute) then wait all goroutens to finish
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-begin // Here the goroutine waits until it is told it can continue.
+				fileSourcePath := filepath.Join(sourcePath, fmt.Sprintf("/%v", curFileName))
+				fileDestinationPath := filepath.Join(destinationPath, fmt.Sprintf("/%v", curFileName))
+				sendFileAsChunks(fileSourcePath, fileDestinationPath)
+			}()
+
+		}
+	}
+	close(begin) // Here we close the channel, thus unblocking all the goroutines simultaneously
+	wg.Wait()
 	return nil
 }
+func getLastFolderName(path string) string {
+	// Clean the path to ensure consistent separators
+	cleanPath := filepath.Clean(path)
+	// Split the cleaned path into individual components
+	components := strings.Split(cleanPath, string(filepath.Separator))
+	// Get the last component, which represents the last folder name
+	lastComponent := components[len(components)-1]
+	return lastComponent
+}
 
-func readAndSendChunks(sourcePath string, destinationPath string) error {
+// this functions split file into bunch of chucks and send those chuncks via channel to another function which listen to channel and combine chuncks again to new file and destination path
+func sendFileAsChunks(sourcePath string, destinationPath string) error {
 	file, err := os.Open(sourcePath)
 	if err != nil {
 		log.Println("can not open file")
@@ -44,12 +106,10 @@ func readAndSendChunks(sourcePath string, destinationPath string) error {
 	defer file.Close()
 
 	fileSize := fileInfo.Size()
-	log.Printf("file size is %v", fileSize)
 	totalChunksCount := fileSize / chunkSize
 	if fileSize%chunkSize != 0 {
 		totalChunksCount++
 	}
-	log.Printf("total chunks are %v\n", totalChunksCount)
 	done := make(chan interface{})
 	chunks := make(chan fileChunk, totalChunksCount) // Use buffered channel with a capacity of chunks count
 	defer close(done)
@@ -70,7 +130,7 @@ func readAndSendChunks(sourcePath string, destinationPath string) error {
 			// ensures that chunk contains only the actual data read from the file, without any uninitialized or unused bytes.
 			chunk := make([]byte, readBytes)
 			copy(chunk, buffer[:readBytes])
-			chunks <- fileChunk{num: i, data: chunk}
+			chunks <- fileChunk{fileName: fileInfo.Name(), num: i, data: chunk}
 		}
 
 	}
@@ -93,7 +153,6 @@ func readAndSendChunks(sourcePath string, destinationPath string) error {
 }
 
 func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, destinationPath string) <-chan Result {
-	fmt.Println(len(chunks))
 	combinedFile, err := os.Create(destinationPath)
 	if err != nil {
 		log.Fatal(err)
@@ -113,7 +172,7 @@ func receiveChunksChannel(done <-chan interface{}, chunks <-chan fileChunk, dest
 				if !ok {
 					return
 				}
-				log.Printf("i received chunk #%v size: %v\n", chunk.num, len(chunk.data))
+				//log.Printf("i received chunk %v #%v size: %v\n", chunk.fileName, chunk.num, len(chunk.data))
 				_, err := combinedFile.Write(chunk.data)
 				if err != nil {
 					terminated <- Result{chunkNum: chunk.num, statusCode: http.StatusInternalServerError, message: fmt.Sprintf("can not write chunk #%v", chunk.num)}
