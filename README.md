@@ -1,7 +1,7 @@
 # ParralelCopyPast
 
 # Description:
-The Parallel Copy and Paste Tool is a powerful and efficient utility written in Go (Golang) that facilitates the seamless replication of directories, including their nested folders and files. It offers a reliable solution for quickly duplicating directory structures and their contents, saving valuable time and effort in various scenarios, such as software development, data backups, or system administration tasks.
+The Parallel Copy and Paste CLI Tool is a powerful and efficient utility written in Go (Golang) that facilitates the seamless replication of directories, including their nested folders and files. It offers a reliable solution for quickly duplicating directory structures and their contents, saving valuable time and effort in various scenarios, such as software development, data backups, or system administration tasks.
 
 # Key Features:
 
