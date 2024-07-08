@@ -12,4 +12,4 @@ The Parallel Copy and Paste Tool is a powerful and efficient utility written in 
 **Efficient File Transfer:** dividing file into chuncks and using Goroutes and channels  to efficiently transfers files, optimizing performance and minimizing the time required to complete the copy operation.
 
 # Usage Example:
-```$ parallel-copy-tool -source /path/to/source/directory -destination /path/to/destination/directory```
+```$ pcopy -s="/media/hossam/Work/hossam/cources/copy past test" -d="/media/hossam/Work"```
