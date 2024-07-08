@@ -1,17 +1,11 @@
+/*
+Copyright © 2024 NAME HERE <EMAIL ADDRESS>
+
+*/
 package main
 
-import (
-	"fmt"
-
-	fileTransfer "github.com/hussammohammed/ParallelCopyPast/filetransfer"
-)
+import "github.com/hussammohammed/ParallelCopyPast/cmd"
 
 func main() {
-	handler := fileTransfer.FileTransferHandler{}
-	sourcePath := "/media/hossam/Work/hossam/cources/copy past test"
-	destinationPath := "/media/hossam/Work"
-	err := handler.CopyPast(sourcePath, destinationPath)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
+	cmd.Execute()
 }
