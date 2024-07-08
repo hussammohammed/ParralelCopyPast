@@ -13,3 +13,7 @@ The Parallel Copy and Paste Tool is a powerful and efficient utility written in 
 
 # Usage Example:
 ```$ pcopy -s="/media/hossam/Work/hossam/cources/copy past test" -d="/media/hossam/Work"```
+```Flags:
+  -d, --destination string   path of destination
+  -s, --source string        path of source
+  -h, --help                 help for pcopy ```
